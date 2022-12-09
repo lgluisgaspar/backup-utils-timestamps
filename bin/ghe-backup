@@ -137,9 +137,11 @@ if [ -f ../in-progress ]; then
   fi
 fi
 
+START_TIME=$(date +%s)
+
 echo "$GHE_SNAPSHOT_TIMESTAMP $$" > ../in-progress
 
-echo "Starting backup of $GHE_HOSTNAME with backup-utils v$BACKUP_UTILS_VERSION in snapshot $GHE_SNAPSHOT_TIMESTAMP"
+logInfo "Starting backup of $GHE_HOSTNAME with backup-utils v$BACKUP_UTILS_VERSION in snapshot $GHE_SNAPSHOT_TIMESTAMP"
 
 # Perform a host connection check and establish the remote appliance version.
 # The version is available in the GHE_REMOTE_VERSION variable and also written
@@ -163,18 +165,18 @@ echo "$GHE_BACKUP_STRATEGY" > strategy
 bm_init > /dev/null
 
 ghe-backup-store-version  ||
-echo "Warning: storing backup-utils version remotely failed."
+logInfo "Warning: storing backup-utils version remotely failed."
 
-echo "Backing up GitHub settings ..."
+logInfo "Backing up GitHub settings ..."
 ghe-backup-settings || failures="$failures settings"
 
-echo "Backing up SSH authorized keys ..."
+logInfo "Backing up SSH authorized keys ..."
 bm_start "ghe-export-authorized-keys"
 ghe-ssh "$GHE_HOSTNAME" -- 'ghe-export-authorized-keys' > authorized-keys.json ||
 failures="$failures authorized-keys"
 bm_end "ghe-export-authorized-keys"
 
-echo "Backing up SSH host keys ..."
+logInfo "Backing up SSH host keys ..."
 bm_start "ghe-export-ssh-host-keys"
 ghe-ssh "$GHE_HOSTNAME" -- 'ghe-export-ssh-host-keys' > ssh-host-keys.tar ||
 failures="$failures ssh-host-keys"
@@ -183,45 +185,45 @@ bm_end "ghe-export-ssh-host-keys"
 ghe-backup-mysql || failures="$failures mysql"
 
 if ghe-ssh "$GHE_HOSTNAME" -- 'ghe-config --true app.actions.enabled'; then
-  echo "Backing up MSSQL databases ..."
+  logInfo "Backing up MSSQL databases ..."
   ghe-backup-mssql 1>&3 || failures="$failures mssql"
 
-  echo "Backing up Actions data ..."
+  logInfo "Backing up Actions data ..."
   ghe-backup-actions 1>&3 || failures="$failures actions"
 fi
 
 if ghe-ssh "$GHE_HOSTNAME" -- 'ghe-config --true app.minio.enabled'; then
-  echo "Backing up Minio data ..."
+  logInfo "Backing up Minio data ..."
   ghe-backup-minio 1>&3 || failures="$failures minio"
 fi
 
 commands=("
-echo \"Backing up Redis database ...\"
+logInfo \"Backing up Redis database ...\"
 ghe-backup-redis > redis.rdb || printf %s \"redis \" >> \"$failures_file\"")
 
 commands+=("
-echo \"Backing up audit log ...\"
+logInfo \"Backing up audit log ...\"
 ghe-backup-es-audit-log || printf %s \"audit-log \" >> \"$failures_file\"")
 
 commands+=("
-echo \"Backing up Git repositories ...\"
+logInfo \"Backing up Git repositories ...\"
 ghe-backup-repositories || printf %s \"repositories \" >> \"$failures_file\"")
 
 commands+=("
-echo \"Backing up GitHub Pages artifacts ...\"
+logInfo \"Backing up GitHub Pages artifacts ...\"
 ghe-backup-pages || printf %s \"pages \" >> \"$failures_file\"")
 
 commands+=("
-echo \"Backing up storage data ...\"
+logInfo \"Backing up storage data ...\"
 ghe-backup-storage || printf %s \"storage \" >> \"$failures_file\"")
 
 commands+=("
-echo \"Backing up custom Git hooks ...\"
+logInfo \"Backing up custom Git hooks ...\"
 ghe-backup-git-hooks || printf %s \"git-hooks \" >> \"$failures_file\"")
 
 if [ "$GHE_BACKUP_STRATEGY" = "rsync" ]; then
   commands+=("
-  echo \"Backing up Elasticsearch indices ...\"
+  logInfo \"Backing up Elasticsearch indices ...\"
   ghe-backup-es-rsync || printf %s \"elasticsearch \" >> \"$failures_file\"")
 fi
 
@@ -254,7 +256,10 @@ if [ -z "$failures" ]; then
   ghe-prune-snapshots
 fi
 
-echo "Completed backup of $GHE_HOSTNAME in snapshot $GHE_SNAPSHOT_TIMESTAMP at $(date +"%H:%M:%S")"
+logInfo "Completed backup of $GHE_HOSTNAME in snapshot $GHE_SNAPSHOT_TIMESTAMP at $(date +"%H:%M:%S")"
+
+END_TIME=$(date +%s)
+logInfo "Runtime: $(($END_TIME-$START_TIME)) seconds"
 
 # Exit non-zero and list the steps that failed.
 if [ -z "$failures" ]; then
@@ -267,7 +272,7 @@ else
 fi
 
 # Detect if the created backup contains any leaked ssh keys
-echo "Checking for leaked ssh keys ..."
+logInfo "Checking for leaked ssh keys ..."
 ghe-detect-leaked-ssh-keys -s "$GHE_SNAPSHOT_DIR" || true
 
 # Make sure we exit zero after the conditional
